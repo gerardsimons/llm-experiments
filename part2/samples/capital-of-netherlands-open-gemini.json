@@ -1,0 +1,117 @@
+{
+    "sdk_http_response": {
+        "headers": {
+            "content-type": "application/json; charset=UTF-8",
+            "vary": "Origin, X-Origin, Referer",
+            "content-encoding": "gzip",
+            "date": "Sun, 11 Jan 2026 07:47:30 GMT",
+            "server": "scaffolding on HTTPServer2",
+            "x-xss-protection": "0",
+            "x-frame-options": "SAMEORIGIN",
+            "x-content-type-options": "nosniff",
+            "alt-svc": "h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000",
+            "transfer-encoding": "chunked"
+        },
+        "body": null
+    },
+    "candidates": [
+        {
+            "content": {
+                "parts": [
+                    {
+                        "media_resolution": null,
+                        "code_execution_result": null,
+                        "executable_code": null,
+                        "file_data": null,
+                        "function_call": null,
+                        "function_response": null,
+                        "inline_data": null,
+                        "text": "Amsterdam",
+                        "thought": null,
+                        "thought_signature": null,
+                        "video_metadata": null
+                    }
+                ],
+                "role": "model"
+            },
+            "citation_metadata": null,
+            "finish_message": null,
+            "token_count": null,
+            "finish_reason": "STOP",
+            "avg_logprobs": -0.000033260872442042455,
+            "grounding_metadata": null,
+            "index": null,
+            "logprobs_result": {
+                "chosen_candidates": [
+                    {
+                        "log_probability": -0.000033260872,
+                        "token": "Amsterdam",
+                        "token_id": 138142
+                    }
+                ],
+                "top_candidates": [
+                    {
+                        "candidates": [
+                            {
+                                "log_probability": -0.000033260872,
+                                "token": "Amsterdam",
+                                "token_id": 138142
+                            },
+                            {
+                                "log_probability": -12.358672,
+                                "token": "1",
+                                "token_id": 236770
+                            },
+                            {
+                                "log_probability": -12.4896345,
+                                "token": "_",
+                                "token_id": 236779
+                            },
+                            {
+                                "log_probability": -12.691943,
+                                "token": "A",
+                                "token_id": 236776
+                            },
+                            {
+                                "log_probability": -13.132801,
+                                "token": "Am",
+                                "token_id": 6700
+                            }
+                        ]
+                    }
+                ]
+            },
+            "safety_ratings": null,
+            "url_context_metadata": null
+        }
+    ],
+    "create_time": "2026-01-11T07:47:29.554089Z",
+    "model_version": "gemini-2.5-flash",
+    "prompt_feedback": null,
+    "response_id": "kVVjaenoIaKgseMPu6_tsAQ",
+    "usage_metadata": {
+        "cache_tokens_details": null,
+        "cached_content_token_count": null,
+        "candidates_token_count": 1,
+        "candidates_tokens_details": [
+            {
+                "modality": "TEXT",
+                "token_count": 1
+            }
+        ],
+        "prompt_token_count": 15,
+        "prompt_tokens_details": [
+            {
+                "modality": "TEXT",
+                "token_count": 15
+            }
+        ],
+        "thoughts_token_count": null,
+        "tool_use_prompt_token_count": null,
+        "tool_use_prompt_tokens_details": null,
+        "total_token_count": 16,
+        "traffic_type": "ON_DEMAND"
+    },
+    "automatic_function_calling_history": [],
+    "parsed": null
+}
