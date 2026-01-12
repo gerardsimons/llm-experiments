@@ -11,7 +11,6 @@ def ollama_prompt(model, prompt, temp=0.5, top_k=10, top_p=1, top_logprobs=10, v
         'model': model,
         'prompt': prompt,
         'stream': False,
-
         "temperature": temp,
         "logprobs": True,
         "top_k": top_k,

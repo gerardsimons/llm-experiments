@@ -40,6 +40,7 @@ def vertex_gemini_logprobs(prompt, top_logprobs=5, temperature=0.5, verbose=Fals
     result = {}
     print("\nToken Logprobs:")
     for idx, chosen in enumerate(logprobs_result.top_candidates[0].candidates):
+    # for idx, chosen in enumerate(logprobs_result.chosen_candidates):
         prob = chosen.log_probability
         if invert_log:
             prob = math.e ** prob
@@ -56,7 +57,7 @@ def vertex_gemini_logprobs(prompt, top_logprobs=5, temperature=0.5, verbose=Fals
 if __name__ == "__main__":
     # prompt = "Please answer with 'yes' or 'no' only. The capital of the Netherlands is Amsterdam."
     # prompt = "Please answer with 1 word only. The capital of the Netherlands is The Ha"
-    prompt = "Please complete the following sentence. The seat of government in the Netherlands is located in The "
+    prompt = "Please complete the following sentence with 1 word only. The seat of government in the Netherlands is located in the city of The H"
     probs = vertex_gemini_logprobs(prompt, verbose=True)
 
     pprint(probs)
