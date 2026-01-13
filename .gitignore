@@ -207,3 +207,8 @@ marimo/_lsp/
 __marimo__/
 
 .idea
+  --exclude "package_solution.sh" \
+
+# .cache files
+.cache*
+
