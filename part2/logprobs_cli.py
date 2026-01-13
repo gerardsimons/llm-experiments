@@ -35,7 +35,9 @@ def _vertex_gemini_logprobs(prompt, top_logprobs=5, temperature=0.5, verbose=Fal
         if invert_log:
             prob = math.e ** prob
         result[chosen.token] = prob
-    return result
+    # Sort the items by probability (descending) and create an ordered dictionary
+    sorted_items = sorted(result.items(), key=lambda kv: -kv[1])
+    return {k: v for k, v in sorted_items}
 
 
 def _ollama_prompt(model, prompt, temp=0.5, top_k=10, top_p=1, top_logprobs=10, verbose=False):
@@ -77,7 +79,9 @@ def _ollama_prompt_logprobs(model, prompt, invert_log=True, **kwargs):
             if invert_log:
                 p = math.e ** p
             result[token] = p
-    return result
+    # Sort the items by probability (descending) and create an ordered dictionary
+    sorted_items = sorted(result.items(), key=lambda kv: -kv[1])
+    return {k: v for k, v in sorted_items}
 
 
 def _openai_logprobs(prompt, top_logprobs=10, verbose=False, temperature=0.5, invert_log=True, top_k=10, top_p=1.0, model="gpt-4.1-2025-04-14"):
@@ -97,13 +101,15 @@ def _openai_logprobs(prompt, top_logprobs=10, verbose=False, temperature=0.5, in
                 if invert_log:
                     prob = math.e ** prob
                 result[token] = prob
+    # Sort the items by probability (descending) and create an ordered dictionary
+    sorted_items = sorted(result.items(), key=lambda kv: -kv[1])
     if verbose:
         pprint(response.to_dict())
         print("\nGenerated text:")
         print(response.choices[0].text)
         print("\nToken logprobs:")
         pprint(result)
-    return result
+    return {k: v for k, v in sorted_items}
 
 def get_logprobs(
     provider,
