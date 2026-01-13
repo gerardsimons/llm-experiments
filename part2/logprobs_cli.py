@@ -1,14 +1,36 @@
 import argparse
+import json
 import math
 import os
+from collections import OrderedDict
+from dataclasses import dataclass, asdict
 from pprint import pprint
+from typing import Any
+
 import requests
-import openai
 from google import genai
 from google.genai.types import GenerateContentConfig, ThinkingConfig
+from openai import OpenAI
 
 
-def _vertex_gemini_logprobs(prompt, top_logprobs=5, temperature=0.5, verbose=False, top_k=10, top_p=1.0, invert_log=True, model_id="gemini-1.5-flash"):
+@dataclass
+class LogProbsResult:
+    response_text: str
+    logprobs: dict
+    raw_response: Any
+
+    def to_json(self):
+        return json.dumps(asdict(self), indent=4)
+
+
+def _vertex_gemini_logprobs(prompt, top_logprobs=5, temperature=0.5, verbose=False, top_k=10, top_p=1.0, invert_log=True, model_id="gemini-1.5-flash", max_output_tokens=10):
+    if verbose:
+        print("Vertex Gemini LogProbs Args:")
+        print(f"{prompt=}")
+        print(f"{top_logprobs=}")
+        print(f"{temperature=}")
+        print(f"{top_k=}")
+        print(f"{top_p=}")
     PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
     MODEL_ID = model_id
     client = genai.Client(vertexai=True, project=PROJECT_ID, location="global")
@@ -21,12 +43,13 @@ def _vertex_gemini_logprobs(prompt, top_logprobs=5, temperature=0.5, verbose=Fal
             logprobs=top_logprobs,
             top_k=top_k,
             top_p=top_p,
-            max_output_tokens=10,
-            thinking_config=ThinkingConfig(thinking_budget=0)
+            max_output_tokens=max_output_tokens,
+            thinking_config=ThinkingConfig(thinking_budget=0) # Never do any thinking
         ),
     )
+    response_dict = response.to_json_dict()
     if verbose:
-        pprint(response.to_json_dict())
+        pprint(response_dict)
     candidate = response.candidates[0]
     logprobs_result = candidate.logprobs_result
     result = {}
@@ -37,7 +60,12 @@ def _vertex_gemini_logprobs(prompt, top_logprobs=5, temperature=0.5, verbose=Fal
         result[chosen.token] = prob
     # Sort the items by probability (descending) and create an ordered dictionary
     sorted_items = sorted(result.items(), key=lambda kv: -kv[1])
-    return {k: v for k, v in sorted_items}
+    logprobs = OrderedDict(sorted_items)
+    return LogProbsResult(
+        response_text=candidate.content.parts[0].text,
+        logprobs=logprobs,
+        raw_response=response_dict
+    )
 
 
 def _ollama_prompt(model, prompt, temp=0.5, top_k=10, top_p=1, top_logprobs=10, verbose=False):
@@ -69,7 +97,7 @@ def _ollama_prompt(model, prompt, temp=0.5, top_k=10, top_p=1, top_logprobs=10, 
 def _ollama_prompt_logprobs(model, prompt, invert_log=True, **kwargs):
     resp = _ollama_prompt(model, prompt, **kwargs)
     if not resp:
-        return {}
+        return None
     result = {}
     if resp.get('logprobs') and resp['logprobs'] and resp['logprobs'][0].get('top_logprobs'):
         first_token_top_logprobs = resp['logprobs'][0]['top_logprobs']
@@ -81,35 +109,53 @@ def _ollama_prompt_logprobs(model, prompt, invert_log=True, **kwargs):
             result[token] = p
     # Sort the items by probability (descending) and create an ordered dictionary
     sorted_items = sorted(result.items(), key=lambda kv: -kv[1])
-    return {k: v for k, v in sorted_items}
+    logprobs = OrderedDict(sorted_items)
+    return LogProbsResult(
+        response_text=resp.get('response', ''),
+        logprobs=logprobs,
+        raw_response=resp
+    )
 
 
-def _openai_logprobs(prompt, top_logprobs=10, verbose=False, temperature=0.5, invert_log=True, top_k=10, top_p=1.0, model="gpt-4.1-2025-04-14"):
-    response = openai.Completion.create(
+def _openai_logprobs(prompt, top_logprobs=10, verbose=False, temperature=0.5, invert_log=True, top_p=1.0, model="gpt-4o-mini"):
+    client = OpenAI()
+    response = client.chat.completions.create(
         model=model,
-        prompt=prompt,
+        messages=[{"role": "user", "content": prompt}],
         temperature=temperature,
-        logprobs=top_logprobs,
+        logprobs=True,
+        top_logprobs=top_logprobs,
         max_tokens=10,
+        top_p=top_p,
     )
     result = {}
-    if response.choices and response.choices[0].logprobs:
-        if response.choices[0].logprobs.top_logprobs and response.choices[0].logprobs.top_logprobs[0]:
-            first_token_top_logprobs = response.choices[0].logprobs.top_logprobs[0]
-            for token, logprob in first_token_top_logprobs.items():
-                prob = logprob
-                if invert_log:
-                    prob = math.e ** prob
-                result[token] = prob
+    if response.choices and response.choices[0].logprobs and response.choices[0].logprobs.content:
+        # We are interested in the logprobs of the first generated token
+        first_token_logprobs = response.choices[0].logprobs.content[0].top_logprobs
+        for token_data in first_token_logprobs:
+            prob = token_data.logprob
+            if invert_log:
+                prob = math.e ** prob
+            result[token_data.token] = prob
+
     # Sort the items by probability (descending) and create an ordered dictionary
     sorted_items = sorted(result.items(), key=lambda kv: -kv[1])
+    logprobs = OrderedDict(sorted_items)
+    
+    response_dict = response.model_dump()
     if verbose:
-        pprint(response.to_dict())
+        pprint(response_dict)
         print("\nGenerated text:")
-        print(response.choices[0].text)
+        print(response.choices[0].message.content)
         print("\nToken logprobs:")
-        pprint(result)
-    return {k: v for k, v in sorted_items}
+        pprint(logprobs, sort_dicts=False)
+    
+    return LogProbsResult(
+        response_text=response.choices[0].message.content,
+        logprobs=logprobs,
+        raw_response=response_dict
+    )
+
 
 def get_logprobs(
     provider,
@@ -121,7 +167,7 @@ def get_logprobs(
     top_p=1.0,
     verbose=False,
     invert_log=True
-):
+) -> LogProbsResult | None:
     if provider == "gemini":
         return _vertex_gemini_logprobs(
             prompt=prompt,
@@ -150,7 +196,6 @@ def get_logprobs(
             top_logprobs=top_logprobs,
             temperature=temperature,
             verbose=verbose,
-            top_k=top_k,
             top_p=top_p,
             invert_log=invert_log,
             model=model_id
@@ -170,14 +215,16 @@ def main():
     parser.add_argument("--top_p", type=float, default=1.0, help="Top-p (nucleus) sampling parameter.")
     parser.add_argument("--verbose", action="store_true", help="Print verbose output including full API responses.")
     parser.add_argument("--no_invert_log", action="store_true", help="Do not invert log probabilities to actual probabilities.")
+    parser.add_argument("--json", dest='to_json', action="store_true", help="Output as JSON.")
 
     args = parser.parse_args()
-
-    print(f"Using provider: {args.provider}")
-    print(f"Prompt: {args.prompt}")
+    
+    if not args.to_json:
+      print(f"Using provider: {args.provider}")
+      print(f"Prompt: {args.prompt}")
 
     try:
-        logprobs_output = get_logprobs(
+        logprobs_result = get_logprobs(
             provider=args.provider,
             prompt=args.prompt,
             model_id=args.model_id,
@@ -189,9 +236,13 @@ def main():
             invert_log=not args.no_invert_log
         )
 
-        if logprobs_output:
-            print("\nNext Token Logprobs:")
-            pprint(logprobs_output)
+        if logprobs_result:
+            if args.to_json:
+                print(logprobs_result.to_json())
+            else:
+                print("\nNext Token Logprobs:")
+                pprint(logprobs_result.logprobs, sort_dicts=False)
+                print(f"\nFull response: {logprobs_result.response_text}")
         else:
             print("\nCould not retrieve logprobs. Check error messages above.")
 
