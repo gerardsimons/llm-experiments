@@ -86,7 +86,9 @@ def _ollama_prompt(model, prompt, temp=0.5, top_k=10, top_p=1, top_logprobs=10, 
         resp_json = response.json()
         if verbose:
             print(f"prompt: {prompt}")
-            print(f"response:")
+            print("request:")
+            pprint(payload)
+            print("response:")
             pprint(resp_json)
         return resp_json
     except requests.exceptions.RequestException as e:
