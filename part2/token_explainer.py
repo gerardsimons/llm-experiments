@@ -55,16 +55,8 @@ def predictive_entropy(logprobs: Dict[str, float]) -> float:
 # --- MASKING STRATEGIES ---
 
 def get_masking_spans(text: str, strategy: str, tokenizer: Optional[Tokenizer] = None, phrase_size: int = 2) -> List[Dict[str, Any]]:
-    """
-    Generates a list of text spans to be masked based on the chosen strategy.
-    
-    Returns:
-        A list of dictionaries, where each dict has 'span' (a tuple of start/end indices)
-        and 'text' (the original text of the span).
-    """
     spans = []
     if strategy == 'word':
-        # Use regex to find all non-whitespace sequences
         for match in re.finditer(r'\S+', text):
             spans.append({'span': match.span(), 'text': match.group()})
     
@@ -73,22 +65,18 @@ def get_masking_spans(text: str, strategy: str, tokenizer: Optional[Tokenizer] =
         if len(words) < phrase_size:
             return spans
         for i in range(len(words) - phrase_size + 1):
-            start_word = words[i]
-            end_word = words[i + phrase_size - 1]
-            start_char = start_word.start()
-            end_char = end_word.end()
+            start_char = words[i].start()
+            end_char = words[i + phrase_size - 1].end()
             spans.append({
                 'span': (start_char, end_char),
                 'text': text[start_char:end_char]
             })
 
-    elif strategy == 'subword': 
+    elif strategy == 'subword':
         if tokenizer is None:
             raise ValueError("Tokenizer must be provided for 'subword' strategy.")
         encoding = tokenizer.encode(text)
-        # We get tokens and their char-level offsets directly from the encoding
         for i, (start, end) in enumerate(encoding.offsets):
-             # Don't mask special tokens like [CLS], [SEP]
             if encoding.tokens[i] in tokenizer.all_special_tokens:
                 continue
             spans.append({
@@ -99,7 +87,6 @@ def get_masking_spans(text: str, strategy: str, tokenizer: Optional[Tokenizer] =
         raise ValueError(f"Unknown masking strategy: {strategy}")
         
     return spans
-
 
 # --- Masking Logic ---
 
@@ -114,9 +101,6 @@ def run_masking_experiment(
     phrase_size: int = 2,
     mask_label: str = "[...]"
 ) -> pd.DataFrame:
-    """
-    Performs a masking experiment for a single text using a specified strategy.
-    """
     base_prompt = prompt_template.format(text=txt)
     base_logprobs = get_logprobs_cached(prompt=base_prompt, **logprob_kwargs).logprobs
     base_entropy = predictive_entropy(base_logprobs)
@@ -163,9 +147,6 @@ def token_masking_analysis(
     tokenizer: Optional[Tokenizer] = None,
     phrase_size: int = 2
 ) -> pd.DataFrame:
-    """
-    Applies the masking experiment across multiple texts in a DataFrame.
-    """
     mask_dfs = []
     for _, row in tqdm(df.iterrows(), total=len(df), desc=f"Analyzing with '{strategy}' strategy"):
         txt = row[text_col]
@@ -203,16 +184,12 @@ def token_masking_analysis(
     analysis_df['prompt_id'] = analysis_df.groupby('original_text').ngroup()
     return analysis_df
 
-# --- Visualization & CLI (largely unchanged, but CLI args updated) ---
-def colorize_sentence(text: str, token_effects: Dict[int, float], spans: List[Dict[str, Any]]) -> str:
-    """
-    Generates an HTML string of the original text with spans colored by their effect score.
-    """
-    # Create a list of non-overlapping colored segments
+# --- Visualization ---
+
+def colorize_text_by_span(text: str, token_effects: Dict[int, float], spans: List[Dict[str, Any]]) -> str:
     segments = []
     last_idx = 0
     
-    # Sort spans by start index to process them in order
     sorted_spans_with_effects = sorted(
         [(i, spans[i], token_effects.get(i)) for i in range(len(spans)) if token_effects.get(i) is not None],
         key=lambda x: x[1]['span'][0]
@@ -222,8 +199,7 @@ def colorize_sentence(text: str, token_effects: Dict[int, float], spans: List[Di
     max_abs_effect = max(abs(v) for v in valid_effects) if valid_effects else 0
 
     def interpolate_color(effect):
-        if effect is None or np.isnan(effect) or max_abs_effect == 0:
-            return "#FFFFFF"
+        if effect is None or np.isnan(effect) or max_abs_effect == 0: return "#FFFFFF"
         normalized = effect / max_abs_effect
         r_bg, g_bg, b_bg = (200, 255, 200) if normalized > 0 else (255, 200, 200)
         alpha = abs(normalized)
@@ -232,7 +208,6 @@ def colorize_sentence(text: str, token_effects: Dict[int, float], spans: List[Di
 
     for i, span_info, effect in sorted_spans_with_effects:
         start, end = span_info['span']
-        # Add uncolored text before the current span
         if start > last_idx:
             segments.append(html.escape(text[last_idx:start]))
         
@@ -243,7 +218,6 @@ def colorize_sentence(text: str, token_effects: Dict[int, float], spans: List[Di
         )
         last_idx = end
 
-    # Add any remaining text after the last span
     if last_idx < len(text):
         segments.append(html.escape(text[last_idx:]))
 
@@ -251,44 +225,101 @@ def colorize_sentence(text: str, token_effects: Dict[int, float], spans: List[Di
 
 def generate_html_report(analysis_df: pd.DataFrame, strategy: str, **kwargs) -> str:
     if analysis_df.empty: return "<h1>No analysis data to display.</h1>"
-    # ... (HTML generation code, now needs to use spans for colorizing)
-    # ... (omitting for brevity, but it would be similar to before, calling the new colorize)
-    report_parts = ["..."]. # Placeholder
-    return "\n".join(report_parts)
+    
+    report_parts = [
+        '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Token Contribution Report</title>'
+        '<style>body{font-family:sans-serif;line-height:1.6;margin:20px;background-color:#f4f4f4;color:#333;}'
+        '.container{background-color:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:15px;margin-bottom:20px;}'
+        'h1,h3{color:#0056b3;}</style></head><body><h1>Token Contribution Analysis</h1>'
+    ]
 
+    tokenizer = None
+    if strategy == 'subword':
+        tokenizer_path = kwargs.get('tokenizer_path', 'bert-base-uncased')
+        tokenizer = Tokenizer.from_pretrained(tokenizer_path)
+
+    for prompt_id, group in analysis_df.groupby('prompt_id'):
+        group = group.sort_values('token_index')
+        original_text = group['original_text'].iloc[0]
+        true_label = group['true_label'].iloc[0]
+        unmasked_pred = group['unmasked_pred'].iloc[0]
+
+        spans = get_masking_spans(
+            original_text, strategy, tokenizer=tokenizer, phrase_size=kwargs.get('phrase_size', 2)
+        )
+        
+        token_effects = group.set_index('token_index')['net_effect'].to_dict()
+        colorized_html = colorize_text_by_span(original_text, token_effects, spans)
+
+        report_parts.append(f"<div class='container'><h3>Prompt ID: {prompt_id}</h3>")
+        report_parts.append(f"<p><b>True Label:</b> <span style='color:green;'>{true_label}</span> | "
+                            f"<b>Prediction:</b> <span style='color:red;'>{unmasked_pred}</span></p>")
+        report_parts.append(f"<h4>Contribution Analysis (Strategy: {strategy}):</h4>"
+                            f"<div style='padding:10px;border:1px solid #ccc;border-radius:5px;'>{colorized_html}</div></div>")
+
+    report_parts.append("</body></html>")
+    return "\n".join(report_parts)
 
 def main():
     parser = argparse.ArgumentParser(description="Run token-level contribution analysis on a dataset.")
-    parser.add_argument("input_csv", help="Path to the input CSV file.")
-    parser.add_argument("--text_col", required=True, help="Column with text to analyze.")
-    parser.add_argument("--label_col", required=True, help="Column with the true label.")
-    parser.add_argument("--pred_col", required=True, help="Column with the model's predictions.")
+    parser.add_argument("input_csv", help="Path to input CSV file.")
+    parser.add_argument("--text_col", required=True, help="Column with text.")
+    parser.add_argument("--label_col", required=True, help="Column with true label.")
+    parser.add_argument("--pred_col", required=True, help="Column with model predictions.")
     parser.add_argument("--prompt_template", required=True, help="Prompt template with a '{text}' placeholder.")
-    # New strategy arguments
-    parser.add_argument("--strategy", type=str, choices=['word', 'phrase', 'subword'], default='word', help="Masking strategy to use.")
+    parser.add_argument("--strategy", type=str, choices=['word', 'phrase', 'subword'], default='word', help="Masking strategy.")
     parser.add_argument("--phrase_size", type=int, default=2, help="Size of phrases for 'phrase' strategy.")
-    parser.add_argument("--tokenizer_path", type=str, default="bert-base-uncased", help="Hugging Face path for the tokenizer for 'subword' strategy.")
-    
+    parser.add_argument("--tokenizer_path", type=str, default="bert-base-uncased", help="Tokenizer path for 'subword' strategy.")
     parser.add_argument("--relevant_labels", type=str, help="Comma-separated labels to consider for delta_logprob columns.")
-    parser.add_argument("--output_csv", help="Path to save the analysis CSV.", default="analysis_results.csv")
-    parser.add_argument("--output_html", help="Path to save the HTML report.", default="analysis_report.html")
-    parser.add_argument("--limit", type=int, default=10, help="Limit the number of rows to process.")
+    parser.add_argument("--output_csv", default="analysis_results.csv", help="Path to save analysis CSV.")
+    parser.add_argument("--output_html", default="analysis_report.html", help="Path to save HTML report.")
+    parser.add_argument("--limit", type=int, default=10, help="Limit number of rows to process.")
     parser.add_argument("--model_id", type=str, default='llama3:8b', help="Ollama model ID.")
-    
     args = parser.parse_args()
 
-    logprob_kwargs = {"provider": 'ollama', "model_id": args.model_id, "top_logprobs": 5, "temperature": 0.0, "invert_log": False }
+    logprob_kwargs = {"provider": 'ollama', "model_id": args.model_id, "top_logprobs": 5, "temperature": 0.0, "invert_log": False}
     
     tokenizer = None
     if args.strategy == 'subword':
-        print(f"Loading tokenizer '{args.tokenizer_path}'...")
-        tokenizer = Tokenizer.from_pretrained(args.tokenizer_path)
+        try:
+            print(f"Loading tokenizer '{args.tokenizer_path}'...")
+            tokenizer = Tokenizer.from_pretrained(args.tokenizer_path)
+        except Exception as e:
+            print(f"Fatal: Could not load tokenizer. Subword strategy is not available. Error: {e}", file=sys.stderr)
+            sys.exit(1)
 
     relevant_labels_list = [lbl.strip() for lbl in args.relevant_labels.split(',')] if args.relevant_labels else None
 
-    df = pd.read_csv(args.input_csv).head(args.limit)
-    # ... (rest of the CLI logic to call analysis and generate report) ...
-    print("CLI logic to be completed based on refactored functions.")
+    try:
+        df = pd.read_csv(args.input_csv)
+        if args.limit > 0: df = df.head(args.limit)
+    except FileNotFoundError:
+        print(f"Error: Input CSV not found at {args.input_csv}", file=sys.stderr)
+        sys.exit(1)
+
+    for col in [args.text_col, args.label_col, args.pred_col]:
+        if col not in df.columns:
+            print(f"Error: Required column '{col}' not found in CSV.", file=sys.stderr)
+            sys.exit(1)
+
+    analysis_df = token_masking_analysis(
+        df, args.text_col, args.label_col, args.pred_col, args.prompt_template, logprob_kwargs,
+        strategy=args.strategy, relevant_labels=relevant_labels_list, tokenizer=tokenizer, phrase_size=args.phrase_size
+    )
+
+    if not analysis_df.empty:
+        analysis_df.to_csv(args.output_csv, index=False)
+        print(f"Analysis CSV saved to {args.output_csv}")
+
+        html_report = generate_html_report(
+            analysis_df, args.strategy, tokenizer_path=args.tokenizer_path, phrase_size=args.phrase_size
+        )
+        with open(args.output_html, 'w', encoding='utf-8') as f: f.write(html_report)
+        print(f"HTML report saved to {args.output_html}")
+    else:
+        print("No analysis data generated.", file=sys.stderr)
+    
+    print("Done.")
 
 if __name__ == "__main__":
     main()
