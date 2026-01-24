@@ -206,12 +206,15 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-.idea
-  --exclude "package_solution.sh" \
-
 # .cache files
 .cache*
 
 *.csv
 
 logprob_cache
+.DS_Store
+
+scikit-llm
+
+# cache db
+*.db

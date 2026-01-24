@@ -1,4 +1,4 @@
 # Gemini CLI Project Notes
 
 - For all package management operations (installing, upgrading, uninstalling dependencies), always use `uv`. This ensures consistency with the project's dependency locking and virtual environment management. For example: `uv pip install <package_name>`.
-- To run Python scripts or modules within the project's virtual environment, always use `uv run python <script_name.py>`. This ensures the script executes with the correct interpreter and has access to all installed project dependencies.
+- To run Python scripts or modules within the project's virtual environment, use `uv run`. For simple scripts, `uv run python <script_name.py>` is sufficient. However, for scripts located within a package (i.e., a subfolder containing an `__init__.py` file), it is best to run them as modules to ensure imports work correctly. For example: `uv run python -m <package_name>.<script_name>`.
