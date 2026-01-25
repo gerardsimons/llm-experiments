@@ -220,3 +220,6 @@ scikit-llm
 *.db
 .idea/
 .gemini/
+
+# Results artefacts
+results/

@@ -18,6 +18,7 @@ def load_data(train_size=1000, test_size=100, seed=42):
     # Read data
     url = "https://raw.githubusercontent.com/justmarkham/pycon-2016-tutorial/master/data/sms.tsv"
     df = pd.read_table(url, header=None, names=["label", "text"])
+    print("df.shape:", df.shape)
     df["is_spam"] = (df["label"] == "spam").astype(int)
 
     # 1. Sample train
@@ -36,21 +37,45 @@ def load_data(train_size=1000, test_size=100, seed=42):
 
     return X_train, y_train, X_test, y_test
 
-X_train, y_train, X_test, y_test = load_data(100, 10)
+# X_train, y_train, X_test, y_test = load_data(100, 10)
+X_train, y_train, X_test, y_test = load_data(1000, 1000, seed=0)
 
+print(y_test.value_counts())
+print(y_train.value_counts())
+
+assert len(y_train.unique()) > 1
 
 # Initialise dynamicfewshotclassifier using ollama vectorizer
 # Default vectorizer uses nomic-embed-text
 
+n_examples = 3
 clfs = [
     ZeroShotOllamaClassifier(model="llama3:8b"),
     # DynamicFewShotOllamaClassifier(model="llama3:8b", n_examples=1),
-    DynamicFewShotOllamaClassifier(model="llama3:8b", n_examples=3),
-    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=3)
+    DynamicFewShotOllamaClassifier(model="llama3:8b", n_examples=n_examples),
+
+    # Our example
+    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='l2'),
+    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='cosine'),
+    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='confusion_conditional'),
+    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='margin_global'),
+    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='entropy_global')
 ]
 
+clf_dsc = [
+    'zeroshot_skollama',
+    f'dynamic_skollama_{n_examples}shot',
+
+    f'dynamic_logprob_profile_conditional_l2_{n_examples}shot',
+    f'dynamic_logprob_profile_conditional_cosine_{n_examples}shot',
+    f'dynamic_logprob_confusion_conditional_{n_examples}shot',
+    f'dynamic_logprob_margin_global_{n_examples}shot',
+    f'dynamic_logprob_entropy_global_{n_examples}shot',
+]
+assert len(clfs) == len(clf_dsc)
+
 results = []
-for clf in tqdm(clfs, desc="Fitting"):
+for clf, clf_description  in tqdm(zip(clfs, clf_dsc), desc="Fitting"):
     # clf = DynamicFewShotOllamaClassifier(model="llama3:8b", n_examples=3)
 
     print("Fitting data")
@@ -68,12 +93,15 @@ for clf in tqdm(clfs, desc="Fitting"):
     print(f"F1={f1}")
 
     results.append({
-        'clf': type(clf),
+        'clf_type': type(clf),
+        'clf_desc': clf_description,
         'n_examples': n_examples,
-        'f1': f1
+        'f1': f1,
+        'train_size': len(y_train),
+        'test_size': len(y_test)
     })
 
 df = pd.DataFrame(results).sort_values(by='f1', ascending=False)
-
+df.to_csv(f"ollama_dynamic_{len(y_train)}.csv")
 print(df.to_csv())
     # pprint()

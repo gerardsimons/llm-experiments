@@ -1,4 +1,6 @@
 import numpy as np
+import pandas as pd
+from skllm.prompts.builders import build_few_shot_prompt_slc
 from tqdm import tqdm
 from scipy.stats import entropy
 from sklearn.base import BaseEstimator, ClassifierMixin
@@ -21,7 +23,7 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
         strategy="profile_conditional",
         distance="l2",
         verbose=False,
-        prompt=FEW_SHOT_CLF_PROMPT_TEMPLATE,
+        prompt_template=FEW_SHOT_CLF_PROMPT_TEMPLATE,
         self_sample=False,
     ):
         self.model = model
@@ -29,7 +31,7 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
         self.strategy = strategy
         self.distance = distance
         self.verbose = verbose
-        self.prompt = prompt
+        self.prompt_template = prompt_template
         self.self_sample = self_sample
 
         if "/" in model:
@@ -157,7 +159,8 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
     # -------------------------
 
     def predict(self, X):
-        check_is_fitted(self)
+        if self.n_examples:
+            check_is_fitted(self)
         X = check_array(X, dtype=str, ensure_2d=False)
 
         preds = []
@@ -205,3 +208,12 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
                     preds.append(out.response_text.strip())
 
         return np.asarray(preds)
+
+if __name__ == '__main__':
+    clf = LogprobDynamicFewShotClassifier(n_examples=0)
+    df = pd.DataFrame({'text':["Buy here more", "Hey, how are you?"], 'labels': ["spam", "ham"]})
+    X = df['text']
+    y = df['labels']
+    clf.fit(X, y)
+    pred = clf.predict(X)
+    print(pred)
