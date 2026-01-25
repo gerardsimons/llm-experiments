@@ -7,20 +7,23 @@ from datetime import datetime
 from rich.console import Console
 from rich.panel import Panel
 
+
 # Project-specific imports
 from part3.data_loader import load_data
 from part3.evaluation import evaluate_and_save_results
 from part3.classifiers.langchain_classifier import LangChainClassifier
-from part3.classifiers.llamaindex_classifier import LlamaIndexClassifier
+# from part3.classifiers.llamaindex_classifier import LlamaIndexClassifier
 from part3.classifiers.scikit_llm_classifier import ScikitLLMClassifier
 from part3.classifiers.instructor_classifier import InstructorClassifier
+from part3.classifiers.logprob_dynamic_classifier import LogprobDynamicFewShotClassifier
 
 # --- Classifier Mapping ---
 CLASSIFIERS = {
-    "LangChain": LangChainClassifier,
-    "LlamaIndex": LlamaIndexClassifier,
-    "Scikit-LLM": ScikitLLMClassifier,
-    "Instructor": InstructorClassifier,
+    # "LangChain": LangChainClassifier,
+    # "LlamaIndex": LlamaIndexClassifier,
+    # "Scikit-LLM": ScikitLLMClassifier,
+    # "Instructor": InstructorClassifier,
+    "LogprobDynamicFewShot": LogprobDynamicFewShotClassifier,
 }
 
 def get_args():
@@ -47,6 +50,13 @@ def get_args():
         help="The mode for the Scikit-LLM classifier."
     )
     parser.add_argument(
+        "--logprob-few-shot-strategy",
+        type=str,
+        default="entropy",
+        choices=["entropy", "margin", "least_confidence"],
+        help="The selection strategy for the LogprobDynamicFewShotClassifier."
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default=f"results/run_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
@@ -69,6 +79,18 @@ def get_args():
         action="store_true",
         help="If set, runs the script with mock predictions to test the pipeline without API calls."
     )
+    parser.add_argument(
+        "--train-size",
+        type=int,
+        default=100,
+        help="The number of samples to use for the training set."
+    )
+    parser.add_argument(
+        "--test-size",
+        type=int,
+        default=10,
+        help="The number of samples to use for the test set."
+    )
     return parser.parse_args()
 
 def main():
@@ -88,7 +110,7 @@ def main():
         console.print("[bold yellow]Running in DRY-RUN mode![/bold yellow]")
 
     # --- Data Loading ---
-    X_train, y_train, X_test, y_test = load_data()
+    X_train, y_train, X_test, y_test = load_data(train_size=args.train_size, test_size=args.test_size)
 
     # --- Framework Execution ---
     frameworks_to_run = CLASSIFIERS.keys() if args.framework == 'all' else [args.framework]
@@ -107,6 +129,9 @@ def main():
             }
             if framework_name == "Scikit-LLM":
                 classifier_kwargs["mode"] = args.scikit_llm_mode
+            if framework_name == "LogprobDynamicFewShot":
+                classifier_kwargs["selection_strategy"] = args.logprob_few_shot_strategy
+
 
             # Initialize classifier
             classifier = classifier_class(**classifier_kwargs)

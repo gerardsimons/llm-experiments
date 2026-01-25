@@ -5,7 +5,7 @@ from diskcache import FanoutCache
 cache = FanoutCache()
 
 @cache.memoize()
-def load_data(train_size:int =1000, test_size:int=200):
+def load_data(train_size:int=1000, test_size:int=200):
     """
     Downloads the papluca/language-identification dataset from the Hugging Face Hub
     and returns a stratified sample for training and testing.

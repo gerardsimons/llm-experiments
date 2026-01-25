@@ -218,3 +218,5 @@ scikit-llm
 
 # cache db
 *.db
+.idea/
+.gemini/

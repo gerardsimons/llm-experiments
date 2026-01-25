@@ -10,7 +10,7 @@ def main():
     parser.add_argument("prompt", type=str, help="The prompt to send to the LLM.")
     parser.add_argument("--model_id", type=str, required=True, help="Specific model to use (e.g., 'gemini-1.5-flash', 'llama3:8b', 'gpt-4.1-2025-04-14').")
     parser.add_argument("--top_logprobs", type=int, default=5, help="Number of top log probabilities to return for the next token.")
-    parser.add_argument("--temperature", type=float, default=0.5, help="Sampling temperature for the model.")
+    parser.add_argument("--temperature", type=float, default=0, help="Sampling temperature for the model.")
     parser.add_argument("--top_k", type=int, default=10, help="Top-k sampling parameter.")
     parser.add_argument("--top_p", type=float, default=1.0, help="Top-p (nucleus) sampling parameter.")
     parser.add_argument("--verbose", action="store_true", help="Print verbose output including full API responses.")

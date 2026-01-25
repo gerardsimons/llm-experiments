@@ -1,6 +1,8 @@
 # Caching helper functions
 import math
 import os
+import requests
+from openai import OpenAI
 from dataclasses import dataclass, asdict
 from pprint import pprint
 from typing import Any, OrderedDict
@@ -95,8 +97,10 @@ def _ollama_prompt(model, prompt, temp=0.5, top_k=10, top_p=1, top_logprobs=10, 
             pprint(resp_json)
         return resp_json
     except requests.exceptions.RequestException as e:
-        print(f'Error getting probs from Ollama: {e}')
-        return {}
+        print(f"Error getting probs from Ollama: {e}")
+        print("Problematic Payload:")
+        pprint(payload)
+        raise e
 
 
 def _ollama_prompt_logprobs(model, prompt, invert_log=True, **kwargs):
@@ -167,7 +171,7 @@ def get_logprobs(
         prompt,
         model_id,
         top_logprobs=10,
-        temperature=0.5,
+        temperature=0,
         top_k=10,
         top_p=1.0,
         verbose=False,
