@@ -1,4 +1,3 @@
-
 # Central repository for all prompt templates
 
 # ==============================================================================
@@ -75,4 +74,35 @@ Text:
 INSTRUCTOR_PROMPT_TEMPLATE = """
 Identify the language of the following text.
 Text: {text}
+"""
+
+# ==============================================================================
+# Spam Classification Prompts
+# ==============================================================================
+
+SPAM_ZERO_SHOT_PROMPT_TEMPLATE = """You are classifying SMS messages.
+
+Question: Is the following SMS message spam? The possible labels are: {labels}
+
+Answer with exactly one token: Yes or No.
+
+Message:
+```{x}```
+
+Answer:
+"""
+
+SPAM_FEW_SHOT_PROMPT_TEMPLATE = """You are classifying SMS messages.
+
+Here are some examples:
+{training_data}
+
+Question: Is the following SMS message spam? The possible labels are: {labels}
+
+Answer with exactly one token: Yes or No.
+
+Message:
+```{x}```
+
+Answer:
 """

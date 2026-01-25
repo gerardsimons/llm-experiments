@@ -8,6 +8,7 @@ from skollama.models.ollama.classification.zero_shot import ZeroShotOllamaClassi
 from tqdm import tqdm
 
 from part3.classifiers.logprob_dynamic_classifier import LogprobDynamicFewShotClassifier
+from part3.prompts import SPAM_ZERO_SHOT_PROMPT_TEMPLATE, SPAM_FEW_SHOT_PROMPT_TEMPLATE
 
 # from part3.data_loader import load_data
 
@@ -19,7 +20,7 @@ def load_data(train_size=1000, test_size=100, seed=42):
     url = "https://raw.githubusercontent.com/justmarkham/pycon-2016-tutorial/master/data/sms.tsv"
     df = pd.read_table(url, header=None, names=["label", "text"])
     print("df.shape:", df.shape)
-    df["is_spam"] = (df["label"] == "spam").astype(int)
+    df["label"] = df["label"].map({"spam": "Yes", "ham": "No"})
 
     # 1. Sample train
     train_df = df.sample(n=train_size, random_state=seed)
@@ -37,8 +38,14 @@ def load_data(train_size=1000, test_size=100, seed=42):
 
     return X_train, y_train, X_test, y_test
 
-# X_train, y_train, X_test, y_test = load_data(100, 10)
-X_train, y_train, X_test, y_test = load_data(1000, 1000, seed=0)
+# large
+# X_train, y_train, X_test, y_test = load_data(1000, 1000, seed=0)
+
+# medium
+X_train, y_train, X_test, y_test = load_data(100, 100, seed=0)
+
+# tiny
+# X_train, y_train, X_test, y_test = load_data(10, 10, seed=0)
 
 print(y_test.value_counts())
 print(y_train.value_counts())
@@ -50,16 +57,16 @@ assert len(y_train.unique()) > 1
 
 n_examples = 3
 clfs = [
-    ZeroShotOllamaClassifier(model="llama3:8b"),
+    ZeroShotOllamaClassifier(model="llama3:8b", prompt_template=SPAM_ZERO_SHOT_PROMPT_TEMPLATE),
     # DynamicFewShotOllamaClassifier(model="llama3:8b", n_examples=1),
-    DynamicFewShotOllamaClassifier(model="llama3:8b", n_examples=n_examples),
+    DynamicFewShotOllamaClassifier(model="llama3:8b", n_examples=n_examples, prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
 
     # Our example
-    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='l2'),
-    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='cosine'),
-    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='confusion_conditional'),
-    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='margin_global'),
-    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='entropy_global')
+    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='l2', prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
+    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='cosine', prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
+    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='confusion_conditional', prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
+    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='margin_global', prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
+    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='entropy_global', prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE)
 ]
 
 clf_dsc = [
@@ -89,6 +96,7 @@ for clf, clf_description  in tqdm(zip(clfs, clf_dsc), desc="Fitting"):
     print(type(clf), clf.model, getattr(clf, 'n_examples', None))
     report = classification_report(y_test, y_pred, output_dict=True)
 
+    # Macro average f1 score is most important
     f1 = report['macro avg']['f1-score']
     print(f"F1={f1}")
 
@@ -97,11 +105,13 @@ for clf, clf_description  in tqdm(zip(clfs, clf_dsc), desc="Fitting"):
         'clf_desc': clf_description,
         'n_examples': n_examples,
         'f1': f1,
+        'report': report,
         'train_size': len(y_train),
         'test_size': len(y_test)
     })
 
 df = pd.DataFrame(results).sort_values(by='f1', ascending=False)
 df.to_csv(f"ollama_dynamic_{len(y_train)}.csv")
+df.to_pickle(f"ollama_dynamic_{len(y_train)}.pkl")
 print(df.to_csv())
     # pprint()

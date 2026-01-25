@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from skllm.prompts.builders import build_few_shot_prompt_slc
+from skllm.prompts.builders import build_few_shot_prompt_slc, build_zero_shot_prompt_slc
 from tqdm import tqdm
 from scipy.stats import entropy
 from sklearn.base import BaseEstimator, ClassifierMixin
@@ -8,7 +8,7 @@ from sklearn.utils.validation import check_array, check_is_fitted
 import json
 
 from part2.logprobs import get_logprobs_cached
-from skllm.prompts.templates import FEW_SHOT_CLF_PROMPT_TEMPLATE
+from skllm.prompts.templates import FEW_SHOT_CLF_PROMPT_TEMPLATE, ZERO_SHOT_CLF_PROMPT_TEMPLATE
 
 
 class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
@@ -24,7 +24,9 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
         distance="l2",
         verbose=False,
         prompt_template=FEW_SHOT_CLF_PROMPT_TEMPLATE,
+        zero_shot_prompt_template=ZERO_SHOT_CLF_PROMPT_TEMPLATE,
         self_sample=False,
+        example_template="Text: ```{x}```\nLabel: {y}",
     ):
         self.model = model
         self.n_examples = n_examples
@@ -32,7 +34,9 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
         self.distance = distance
         self.verbose = verbose
         self.prompt_template = prompt_template
+        self.zero_shot_prompt_template = zero_shot_prompt_template
         self.self_sample = self_sample
+        self.example_template = example_template
 
         if "/" in model:
             self.provider, self.model_id = model.split("/")
@@ -55,9 +59,7 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
         if self.distance == "l2":
             return np.linalg.norm(a - b)
         if self.distance == "cosine":
-            return 1 - np.dot(a, b) / (
-                np.linalg.norm(a) * np.linalg.norm(b) + 1e-8
-            )
+            return 1 - np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8)
         raise ValueError(f"Unknown distance: {self.distance}")
 
     def _logprobs(self, text):
@@ -83,6 +85,9 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
         self.classes_ = np.unique(y)
         self.X_ = X
         self.y_ = y
+
+        if self.n_examples == 0:
+            return self
 
         self.logprob_profiles_ = []
         self.entropies_ = []
@@ -110,97 +115,133 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
         self.entropies_ = np.asarray(self.entropies_)
         self.margins_ = np.asarray(self.margins_)
         self.top2_ = np.asarray(self.top2_)
-
-        # Global strategies preselect once
-        if self.strategy == "entropy_global":
-            idx = np.argsort(self.entropies_)[-self.n_examples :]
-            self.global_examples_ = idx
-
-        elif self.strategy == "margin_global":
-            idx = np.argsort(self.margins_)[: self.n_examples]
-            self.global_examples_ = idx
-
+        
         return self
 
     # -------------------------
     # Selection
     # -------------------------
 
-    def _select_examples(self, test_logps):
-        if self.strategy in {"entropy_global", "margin_global"}:
-            return self.global_examples_
+    def _select_examples(self, test_logps=None):
+        selected_indices = []
+        n_per_class = self.n_examples // len(self.classes_)
+        remainder = self.n_examples % len(self.classes_)
 
-        if self.strategy == "profile_conditional":
-            distances = [
-                self._distance(test_logps, lp)
-                for lp in self.logprob_profiles_
-            ]
-            return np.argsort(distances)[: self.n_examples]
+        if "global" in self.strategy:
+            if self.strategy == "entropy_global":
+                scores = self.entropies_
+                ascending = True
+            elif self.strategy == "margin_global":
+                scores = self.margins_
+                ascending = False
+            else:
+                raise ValueError(f"Unknown global strategy: {self.strategy}")
 
-        if self.strategy == "confusion_conditional":
-            order = np.argsort(test_logps)[::-1][:2]
-            mask = np.all(self.top2_ == order, axis=1)
-            idx = np.where(mask)[0]
+            for i, label in enumerate(self.classes_):
+                class_indices = np.where(self.y_ == label)[0]
+                class_scores = scores[class_indices]
+                
+                num_to_select = n_per_class + (1 if i < remainder else 0)
 
-            if len(idx) >= self.n_examples:
-                return idx[: self.n_examples]
+                if ascending:
+                    top_class_indices = class_indices[np.argsort(class_scores)[-num_to_select:]]
+                else:
+                    top_class_indices = class_indices[np.argsort(class_scores)[:num_to_select]]
+                
+                selected_indices.extend(top_class_indices)
+            return selected_indices
 
-            # fallback: nearest in profile space
-            distances = [
-                self._distance(test_logps, lp)
-                for lp in self.logprob_profiles_
-            ]
-            return np.argsort(distances)[: self.n_examples]
+        elif "conditional" in self.strategy:
+            if self.strategy == "profile_conditional":
+                distances = np.array([self._distance(test_logps, lp) for lp in self.logprob_profiles_])
+                scores = distances
+                ascending = True
+            elif self.strategy == "confusion_conditional":
+                order = np.argsort(test_logps)[::-1][:2]
+                mask = np.all(self.top2_ == order, axis=1)
+                
+                scores = self.margins_
+                ascending = True 
+                
+                scores[~mask] = np.inf if ascending else -np.inf
+
+            else:
+                raise ValueError(f"Unknown conditional strategy: {self.strategy}")
+
+            for i, label in enumerate(self.classes_):
+                class_indices = np.where(self.y_ == label)[0]
+                class_scores = scores[class_indices]
+
+                num_to_select = n_per_class + (1 if i < remainder else 0)
+
+                if ascending:
+                    top_class_indices = class_indices[np.argsort(class_scores)[:num_to_select]]
+                else:
+                    top_class_indices = class_indices[np.argsort(class_scores)[-num_to_select:]]
+
+                selected_indices.extend(top_class_indices)
+            return selected_indices
 
         raise ValueError(f"Unknown strategy: {self.strategy}")
 
-    # -------------------------
-    # Predict
-    # -------------------------
+    def create_prompt(self, text) -> str:
+        if self.n_examples > 0:
+            test_logps = self._logprobs(text) if "conditional" in self.strategy else None
+            idx = self._select_examples(test_logps)
+            
+            examples = [(self.X_[i], self.y_[i]) for i in idx]
+
+            examples_by_class = {label: [] for label in self.classes_}
+            for x, y in examples:
+                examples_by_class[y].append((x, y))
+
+            interleaved_examples = []
+            max_len = max(len(v) for v in examples_by_class.values()) if examples_by_class else 0
+            for i in range(max_len):
+                for label in self.classes_:
+                    if i < len(examples_by_class[label]):
+                        interleaved_examples.append(examples_by_class[label][i])
+
+            training_data = "\n".join(
+                [self.example_template.format(x=x, y=y) for x, y in interleaved_examples]
+            )
+            return build_few_shot_prompt_slc(
+                x=text,
+                labels=str(list(self.classes_)),
+                training_data=training_data,
+                template=self.prompt_template,
+            )
+        else:  # zero-shot case
+            return build_zero_shot_prompt_slc(
+                x=text,
+                labels=str(list(self.classes_)),
+                template=self.zero_shot_prompt_template,
+            )
 
     def predict(self, X):
-        if self.n_examples:
-            check_is_fitted(self)
+        check_is_fitted(self)
         X = check_array(X, dtype=str, ensure_2d=False)
 
         preds = []
 
         for text in X:
-            test_logps = self._logprobs(text)
-            idx = self._select_examples(test_logps)
-
-            examples = [(self.X_[i], self.y_[i]) for i in idx]
-            training_data = "\n".join(
-                [f"Text: ```{x}```\nLabel: {y}" for x, y in examples]
-            )
-
-            prompt = self.prompt.format(
-                labels=str(list(self.classes_)),
-                training_data=training_data,
-                x=text,
-            )
+            prompt = self.create_prompt(text)
 
             out = get_logprobs_cached(
                 provider=self.provider,
                 model_id=self.model_id,
                 prompt=prompt,
                 temperature=0,
-                top_logprobs=min(len(self.classes_) * 2, 10), # request enough logprobs to find all possible labels
+                top_logprobs=min(len(self.classes_) * 2, 10),
             )
 
             if self.self_sample:
-                # If self_sample is True, we choose the label with the highest logprob
-                # This assumes that the labels are single tokens.
-                # TODO: This will be problematic for multi-token outputs.
                 if out.logprobs:
-                    # logprobs is an OrderedDict, so the first key is the highest prob token
                     predicted_label = list(out.logprobs.keys())[0]
                     preds.append(predicted_label)
                 else:
-                    # Fallback if no logprobs are returned
                     preds.append(out.response_text.strip())
             else:
-                # Original behavior: parse JSON from response_text
                 try:
                     response_json = json.loads(out.response_text.strip())
                     preds.append(response_json["label"])
@@ -209,11 +250,71 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
 
         return np.asarray(preds)
 
-if __name__ == '__main__':
-    clf = LogprobDynamicFewShotClassifier(n_examples=0)
-    df = pd.DataFrame({'text':["Buy here more", "Hey, how are you?"], 'labels': ["spam", "ham"]})
-    X = df['text']
-    y = df['labels']
+
+def try_zeroshot():
+    print("--- Running Zero-Shot Example ---")
+    spam_prompt_template = """You are classifying SMS messages.
+
+    Question: Is the following SMS message spam? The possible labels are: {labels}
+
+    Answer with exactly one token: Yes or No.
+
+    Message:
+    `{x}`
+
+    Answer:
+    """
+
+    clf = LogprobDynamicFewShotClassifier(
+        n_examples=0,
+        zero_shot_prompt_template=spam_prompt_template,
+        self_sample=True,
+    )
+    df = pd.DataFrame(
+        {"text": ["Buy here more", "Hey, how are you?"], "labels": ["Yes", "No"]}
+    )
+    X = df["text"]
+    y = df["labels"]
+
     clf.fit(X, y)
     pred = clf.predict(X)
-    print(pred)
+    print("Predictions:", pred)
+    print("-" * 20)
+
+
+def try_fewshot():
+    print("\n--- Running Few-Shot Example ---")
+    clf = LogprobDynamicFewShotClassifier(
+        n_examples=2,
+        strategy="entropy_global",
+        self_sample=False,
+    )
+    data = {
+        "text": [
+            "Get a free iPhone now!",
+            "Meeting at 5pm tomorrow.",
+            "URGENT: Your account has been compromised. Click here.",
+            "Can you pick up milk on your way home?",
+            "Exclusive offer just for you!",
+            "Happy Birthday!",
+        ],
+        "labels": ["spam", "ham", "spam", "ham", "spam", "ham"],
+    }
+    df = pd.DataFrame(data)
+    X = df["text"]
+    y = df["labels"]
+
+    clf.fit(X, y)
+
+    sample = X.iloc[0]
+    print("Sample Prompt:", clf.create_prompt(sample))
+
+    new_text = ["Hi mom, how are you doing?"]
+    pred = clf.predict(np.array(new_text))
+    print(f"Prediction for '{new_text[0]}':", pred)
+    print("-" * 20)
+
+
+if __name__ == "__main__":
+    try_zeroshot()
+    try_fewshot()
