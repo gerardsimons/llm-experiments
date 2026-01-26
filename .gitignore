@@ -209,8 +209,6 @@ __marimo__/
 # .cache files
 .cache*
 
-*.csv
-
 logprob_cache
 .DS_Store
 
@@ -223,3 +221,6 @@ scikit-llm
 
 # Results artefacts
 results/
+
+*.csv
+*.pkl

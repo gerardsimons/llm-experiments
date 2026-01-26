@@ -29,6 +29,7 @@ dependencies = [
     "llama-index-llms-ollama>=0.9.1",
     "rich>=14.2.0",
     "plotly>=6.5.2",
+    "kagglehub>=0.4.1",
 ]
 
 [dependency-groups]

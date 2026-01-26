@@ -127,6 +127,14 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
         n_per_class = self.n_examples // len(self.classes_)
         remainder = self.n_examples % len(self.classes_)
 
+        if self.strategy == "random":
+            for i, label in enumerate(self.classes_):
+                class_indices = np.where(self.y_ == label)[0]
+                num_to_select = n_per_class + (1 if i < remainder else 0)
+                random_indices = np.random.choice(class_indices, size=num_to_select, replace=False)
+                selected_indices.extend(random_indices)
+            return selected_indices
+
         if "global" in self.strategy:
             if self.strategy == "entropy_global":
                 scores = self.entropies_
@@ -199,7 +207,7 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
             max_len = max(len(v) for v in examples_by_class.values()) if examples_by_class else 0
             for i in range(max_len):
                 for label in self.classes_:
-                    if i < len(examples_by_class[label]):
+                    if label in examples_by_class and i < len(examples_by_class[label]):
                         interleaved_examples.append(examples_by_class[label][i])
 
             training_data = "\n".join(
@@ -315,6 +323,42 @@ def try_fewshot():
     print("-" * 20)
 
 
+def try_random():
+    print("\n--- Running Random Stratified Example ---")
+    clf = LogprobDynamicFewShotClassifier(
+        n_examples=2,
+        strategy="random",
+        self_sample=False,
+    )
+    data = {
+        "text": [
+            "Get a free iPhone now!",
+            "Meeting at 5pm tomorrow.",
+            "URGENT: Your account has been compromised. Click here.",
+            "Can you pick up milk on your way home?",
+            "Exclusive offer just for you!",
+            "Happy Birthday!",
+            "You won a lottery!",
+            "Let's catch up later."
+        ],
+        "labels": ["spam", "ham", "spam", "ham", "spam", "ham", "spam", "ham"],
+    }
+    df = pd.DataFrame(data)
+    X = df["text"]
+    y = df["labels"]
+
+    clf.fit(X, y)
+
+    sample = X.iloc[0]
+    print("Sample Prompt:", clf.create_prompt(sample))
+
+    new_text = ["Hi mom, how are you doing?"]
+    pred = clf.predict(np.array(new_text))
+    print(f"Prediction for '{new_text[0]}':", pred)
+    print("-" * 20)
+
+
 if __name__ == "__main__":
     try_zeroshot()
     try_fewshot()
+    try_random()

@@ -1,3 +1,5 @@
+import sys
+from pathlib import Path
 from pprint import pprint
 
 import pandas as pd
@@ -10,12 +12,10 @@ from tqdm import tqdm
 from part3.classifiers.logprob_dynamic_classifier import LogprobDynamicFewShotClassifier
 from part3.prompts import SPAM_ZERO_SHOT_PROMPT_TEMPLATE, SPAM_FEW_SHOT_PROMPT_TEMPLATE
 
-# from part3.data_loader import load_data
-
 cache = Cache()
 
 @cache.memoize()
-def load_data(train_size=1000, test_size=100, seed=42):
+def load_spam_data(train_size=1000, test_size=100, seed=42):
     # Read data
     url = "https://raw.githubusercontent.com/justmarkham/pycon-2016-tutorial/master/data/sms.tsv"
     df = pd.read_table(url, header=None, names=["label", "text"])
@@ -38,80 +38,127 @@ def load_data(train_size=1000, test_size=100, seed=42):
 
     return X_train, y_train, X_test, y_test
 
-# large
-# X_train, y_train, X_test, y_test = load_data(1000, 1000, seed=0)
+def load_ag_news_data():#train_size, test_size, model_descriptions, models, seed=0, n_examples=3, tag=""):
+    import kagglehub
 
-# medium
-X_train, y_train, X_test, y_test = load_data(100, 100, seed=0)
+    # Download latest version
+    path = kagglehub.dataset_download("amananandrai/ag-news-classification-dataset")
 
-# tiny
-# X_train, y_train, X_test, y_test = load_data(10, 10, seed=0)
+    print("Path to dataset files:", path)
 
-print(y_test.value_counts())
-print(y_train.value_counts())
+    train_df = pd.read_csv(Path(path) / 'train.csv')
+    test_df = pd.read_csv(Path(path) / 'test.csv')
 
-assert len(y_train.unique()) > 1
+    real_labels = ['World', 'Sports', 'Business', 'Sci/Tech']
 
-# Initialise dynamicfewshotclassifier using ollama vectorizer
-# Default vectorizer uses nomic-embed-text
+    train_df['label'] = train_df['Class Index'].map(lambda x : real_labels[x-1])
+    test_df['label'] = test_df['Class Index'].map(lambda x: real_labels[x-1])
 
-n_examples = 3
-clfs = [
-    ZeroShotOllamaClassifier(model="llama3:8b", prompt_template=SPAM_ZERO_SHOT_PROMPT_TEMPLATE),
-    # DynamicFewShotOllamaClassifier(model="llama3:8b", n_examples=1),
-    DynamicFewShotOllamaClassifier(model="llama3:8b", n_examples=n_examples, prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
+    # There's also description ... add that later?
+    X_train = train_df['Title']
+    y_train = train_df['label']
+    X_test = test_df['Title']
+    y_test = test_df['label']
 
-    # Our example
-    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='l2', prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
-    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='cosine', prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
-    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='confusion_conditional', prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
-    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='margin_global', prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
-    LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='entropy_global', prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE)
-]
+    return X_train, y_train, X_test, y_test
 
-clf_dsc = [
-    'zeroshot_skollama',
-    f'dynamic_skollama_{n_examples}shot',
+def model_description_str(model):
+    if isinstance(model, ZeroShotOllamaClassifier):
+        return "zeroshot_skollama"
+    elif isinstance(model, LogprobDynamicFewShotClassifier):
+        # dynamic_logprob_profile_conditional_l2_
+        if 'global' in model.strategy or 'random' in model.strategy:
+            return f"dynamic_logprob_{model.strategy}"
+        else:
+            return f"dynamic_logprob_{model.strategy}_{model.distance}"
 
-    f'dynamic_logprob_profile_conditional_l2_{n_examples}shot',
-    f'dynamic_logprob_profile_conditional_cosine_{n_examples}shot',
-    f'dynamic_logprob_confusion_conditional_{n_examples}shot',
-    f'dynamic_logprob_margin_global_{n_examples}shot',
-    f'dynamic_logprob_entropy_global_{n_examples}shot',
-]
-assert len(clfs) == len(clf_dsc)
+def run_experiments(train_size, test_size, seed=0, tag="", n_examples_all=[3]):
+    X_train, y_train, X_test, y_test = load_spam_data(train_size, test_size, seed=seed)
 
-results = []
-for clf, clf_description  in tqdm(zip(clfs, clf_dsc), desc="Fitting"):
-    # clf = DynamicFewShotOllamaClassifier(model="llama3:8b", n_examples=3)
+    results = []
 
-    print("Fitting data")
-    clf.fit(X_train, y_train)
+    for n_examples in n_examples_all:
+        models = [
+            # ZeroShotOllamaClassifier(model="llama3:8b", prompt_template=SPAM_ZERO_SHOT_PROMPT_TEMPLATE),
+            # DynamicFewShotOllamaClassifier(model="llama3:8b", n_examples=n_examples, prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
 
-    print("Predicting")
-    y_pred = clf.predict(X_test)
-    print("y_pred:", y_pred)
+            LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE, strategy='random'),
 
-    n_examples = getattr(clf, 'n_examples', 0)
-    print(type(clf), clf.model, getattr(clf, 'n_examples', None))
-    report = classification_report(y_test, y_pred, output_dict=True)
+            # Our examples
+            # LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='l2',
+            #                                 prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
+            LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='cosine',
+                                            prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
+            # LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='confusion_conditional',
+            #                                 prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
+            # LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='margin_global', prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
+            # LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='entropy_global', prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE)
+        ]
 
-    # Macro average f1 score is most important
-    f1 = report['macro avg']['f1-score']
-    print(f"F1={f1}")
+        for model  in tqdm(models, desc="Fitting"):
+            model_desc = model_description_str(model)
 
-    results.append({
-        'clf_type': type(clf),
-        'clf_desc': clf_description,
-        'n_examples': n_examples,
-        'f1': f1,
-        'report': report,
-        'train_size': len(y_train),
-        'test_size': len(y_test)
-    })
+            print("Fitting data")
+            model.fit(X_train, y_train)
 
-df = pd.DataFrame(results).sort_values(by='f1', ascending=False)
-df.to_csv(f"ollama_dynamic_{len(y_train)}.csv")
-df.to_pickle(f"ollama_dynamic_{len(y_train)}.pkl")
-print(df.to_csv())
+            print("Predicting")
+            y_pred = model.predict(X_test)
+            # print("y_pred:", y_pred)
+
+            n_examples = getattr(model, 'n_examples', 0)
+            # print(type(clf), clf.model, getattr(clf, 'n_examples', None))
+            report = classification_report(y_test, y_pred, output_dict=True)
+
+            # Macro average f1 score is most important
+            f1 = report['macro avg']['f1-score']
+
+            print("Experiment Finished")
+            print(f"Model={model_desc}")
+            print(f"F1={f1}")
+
+            results.append({
+                'clf_type': type(model),
+                'clf_desc': model_desc,
+                'n_examples': n_examples,
+                'f1': f1,
+                'report': report,
+                'tag': tag,
+                'train_size': len(y_train),
+                'test_size': len(y_test),
+                'seed': seed
+            })
+
+
+
+    df = pd.DataFrame(results).sort_values(by='f1', ascending=False)
+    fname = f"ollama_dynamic_{len(y_train)}_{tag}"
+    df.to_csv(f"{fname}.csv")
+    df.to_pickle(f"{fname}.pkl")
+    print(f"Saved to {fname}.{{.csv,.pkl}}")
+    return df
+
+# def
+
+if __name__ == '__main__':
+    load_ag_news_data()
+
+    # sys.exit()
+    # large
+    # train_size = 1000
+    # test_size = 1000
+
+    # medium
+    train_size = 100
+    test_size = 1000
+    n_examples_all = [3]
+
+    # tiny
+    # train_size = 10
+    # test_size = 100
+    # n_examples_all = [1]
+
+    tag = "agnews"
+
+    run_experiments(train_size, test_size, tag=tag, n_examples_all=n_examples_all)
+
     # pprint()
