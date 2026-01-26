@@ -38,7 +38,7 @@ def load_spam_data(train_size=1000, test_size=100, seed=42):
 
     return X_train, y_train, X_test, y_test
 
-def load_ag_news_data():#train_size, test_size, model_descriptions, models, seed=0, n_examples=3, tag=""):
+def load_ag_news_data(train_size, test_size):
     import kagglehub
 
     # Download latest version
@@ -47,7 +47,9 @@ def load_ag_news_data():#train_size, test_size, model_descriptions, models, seed
     print("Path to dataset files:", path)
 
     train_df = pd.read_csv(Path(path) / 'train.csv')
+    train_df = train_df[:train_size]
     test_df = pd.read_csv(Path(path) / 'test.csv')
+    test_df = test_df[:test_size]
 
     real_labels = ['World', 'Sports', 'Business', 'Sci/Tech']
 
@@ -73,6 +75,7 @@ def model_description_str(model):
             return f"dynamic_logprob_{model.strategy}_{model.distance}"
 
 def run_experiments(train_size, test_size, seed=0, tag="", n_examples_all=[3]):
+    print(f"Running experiments {train_size=} {test_size=} {seed=} {tag=}")
     X_train, y_train, X_test, y_test = load_spam_data(train_size, test_size, seed=seed)
 
     results = []
@@ -98,6 +101,7 @@ def run_experiments(train_size, test_size, seed=0, tag="", n_examples_all=[3]):
         for model  in tqdm(models, desc="Fitting"):
             model_desc = model_description_str(model)
 
+            print(f"Model={model_desc}")
             print("Fitting data")
             model.fit(X_train, y_train)
 
@@ -113,7 +117,6 @@ def run_experiments(train_size, test_size, seed=0, tag="", n_examples_all=[3]):
             f1 = report['macro avg']['f1-score']
 
             print("Experiment Finished")
-            print(f"Model={model_desc}")
             print(f"F1={f1}")
 
             results.append({
@@ -140,7 +143,6 @@ def run_experiments(train_size, test_size, seed=0, tag="", n_examples_all=[3]):
 # def
 
 if __name__ == '__main__':
-    load_ag_news_data()
 
     # sys.exit()
     # large
