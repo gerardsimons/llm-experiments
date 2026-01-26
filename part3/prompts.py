@@ -106,3 +106,22 @@ Message:
 
 Answer:
 """
+
+NEWS_CLASSIFICATIONS_PROMPT_TEMPLATE = """You are classifying topics of news article headlines.
+
+Here are some examples:
+{training_data}
+
+Question: What is the most appropriate topic for the following news article headline
+
+Answer with exactly one letter:
+* W for World
+* S for Sports
+* B for Business
+* T for Tech/Science
+
+Headline:
+```{x}```
+
+Answer:
+"""

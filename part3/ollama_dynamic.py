@@ -10,7 +10,7 @@ from skollama.models.ollama.classification.zero_shot import ZeroShotOllamaClassi
 from tqdm import tqdm
 
 from part3.classifiers.logprob_dynamic_classifier import LogprobDynamicFewShotClassifier
-from part3.prompts import SPAM_ZERO_SHOT_PROMPT_TEMPLATE, SPAM_FEW_SHOT_PROMPT_TEMPLATE
+from part3.prompts import SPAM_ZERO_SHOT_PROMPT_TEMPLATE, SPAM_FEW_SHOT_PROMPT_TEMPLATE, NEWS_CLASSIFICATIONS_PROMPT_TEMPLATE
 
 cache = Cache()
 
@@ -51,10 +51,10 @@ def load_ag_news_data(train_size, test_size):
     test_df = pd.read_csv(Path(path) / 'test.csv')
     test_df = test_df[:test_size]
 
-    real_labels = ['World', 'Sports', 'Business', 'Sci/Tech']
+    real_labels = ['World', 'Sports', 'Business', 'Tech/Sci']
 
-    train_df['label'] = train_df['Class Index'].map(lambda x : real_labels[x-1])
-    test_df['label'] = test_df['Class Index'].map(lambda x: real_labels[x-1])
+    train_df['label'] = train_df['Class Index'].map(lambda x : real_labels[x-1][0].upper())
+    test_df['label'] = test_df['Class Index'].map(lambda x: real_labels[x-1][0].upper())
 
     # There's also description ... add that later?
     X_train = train_df['Title']
@@ -73,29 +73,32 @@ def model_description_str(model):
             return f"dynamic_logprob_{model.strategy}"
         else:
             return f"dynamic_logprob_{model.strategy}_{model.distance}"
+    elif isinstance(model, DynamicFewShotOllamaClassifier):
+        return f"dynamic_skollama_{model.n_examples}"
 
-def run_experiments(train_size, test_size, seed=0, tag="", n_examples_all=[3]):
+def run_experiments(dl_func, prompt_template, train_size, test_size, seed=0, tag="", n_examples_all=[3]):
     print(f"Running experiments {train_size=} {test_size=} {seed=} {tag=}")
-    X_train, y_train, X_test, y_test = load_spam_data(train_size, test_size, seed=seed)
+    # X_train, y_train, X_test, y_test = load_spam_data(train_size, test_size, seed=seed)
+    X_train, y_train, X_test, y_test = dl_func(train_size, test_size)
 
     results = []
 
     for n_examples in n_examples_all:
         models = [
-            # ZeroShotOllamaClassifier(model="llama3:8b", prompt_template=SPAM_ZERO_SHOT_PROMPT_TEMPLATE),
-            # DynamicFewShotOllamaClassifier(model="llama3:8b", n_examples=n_examples, prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
+            # ZeroShotOllamaClassifier(model="llama3:8b", prompt_template=prompt_template),
+            # DynamicFewShotOllamaClassifier(model="llama3:8b", n_examples=n_examples, prompt_template=prompt_template),
 
-            LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE, strategy='random'),
+            LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, prompt_template=prompt_template, strategy='random', verbose=True),
 
             # Our examples
             # LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='l2',
-            #                                 prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
+            #                                 prompt_template=prompt_template),
             LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='cosine',
-                                            prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
+                                            prompt_template=prompt_template, verbose=True),
             # LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='confusion_conditional',
-            #                                 prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
-            # LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='margin_global', prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE),
-            # LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='entropy_global', prompt_template=SPAM_FEW_SHOT_PROMPT_TEMPLATE)
+            #                                 prompt_template=prompt_template),
+            # LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='margin_global', prompt_template=prompt_template),
+            # LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='entropy_global', prompt_template=prompt_template)
         ]
 
         for model  in tqdm(models, desc="Fitting"):
@@ -105,7 +108,7 @@ def run_experiments(train_size, test_size, seed=0, tag="", n_examples_all=[3]):
             print("Fitting data")
             model.fit(X_train, y_train)
 
-            print("Predicting")
+            print(f"Predicting {len(X_test)}")
             y_pred = model.predict(X_test)
             # print("y_pred:", y_pred)
 
@@ -147,20 +150,21 @@ if __name__ == '__main__':
     # sys.exit()
     # large
     # train_size = 1000
-    # test_size = 1000
+    # test_size = 100
+    # n_examples_all = [1, 3, 10]
 
     # medium
-    train_size = 100
-    test_size = 1000
-    n_examples_all = [3]
+    # train_size = 100
+    # test_size = 100
+    # n_examples_all = [3]
 
     # tiny
-    # train_size = 10
-    # test_size = 100
-    # n_examples_all = [1]
+    train_size = 10
+    test_size = 10
+    n_examples_all = [1]
 
     tag = "agnews"
-
-    run_experiments(train_size, test_size, tag=tag, n_examples_all=n_examples_all)
+    template = NEWS_CLASSIFICATIONS_PROMPT_TEMPLATE
+    run_experiments(load_ag_news_data, template, train_size, test_size, tag=tag, n_examples_all=n_examples_all)
 
     # pprint()

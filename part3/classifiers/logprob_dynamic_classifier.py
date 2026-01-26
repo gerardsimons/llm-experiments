@@ -48,13 +48,6 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
     # Utilities
     # -------------------------
 
-    def _label_prompt(self, text):
-        labels = ", ".join(self.classes_)
-        return (
-            f"Text: '{text.replace(chr(10), ' ')}'\n"
-            f"What is the label? Answer with one of: {labels}. Output only the label."
-        )
-
     def _distance(self, a, b):
         if self.distance == "l2":
             return np.linalg.norm(a - b)
@@ -63,10 +56,11 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
         raise ValueError(f"Unknown distance: {self.distance}")
 
     def _logprobs(self, text):
+        prompt = self.create_prompt(text)
         res = get_logprobs_cached(
             provider=self.provider,
             model_id=self.model_id,
-            prompt=self._label_prompt(text),
+            prompt=prompt,
             top_logprobs=min(len(self.classes_) * 2, 10),
             temperature=0,
         )
@@ -94,10 +88,13 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
         self.margins_ = []
         self.top2_ = []
 
+        if self.strategy == "random":
+            return self
+
         if self.verbose:
             print("Computing decision-space statistics...")
 
-        for text in tqdm(X, disable=not self.verbose):
+        for text in tqdm(X, disable=not self.verbose, desc="Fitting LogProbDynamic"):
             logps = self._logprobs(text)
 
             probs = np.exp(logps - logps.max())
@@ -232,7 +229,7 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
 
         preds = []
 
-        for text in X:
+        for text in tqdm(X, desc="LogProb predict"):
             prompt = self.create_prompt(text)
 
             out = get_logprobs_cached(
