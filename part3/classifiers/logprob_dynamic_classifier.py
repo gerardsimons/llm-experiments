@@ -8,7 +8,7 @@ from sklearn.utils.validation import check_array, check_is_fitted
 import json
 
 from part2.logprobs import get_logprobs_cached
-from skllm.prompts.templates import FEW_SHOT_CLF_PROMPT_TEMPLATE, ZERO_SHOT_CLF_PROMPT_TEMPLATE
+from part3.prompts import NEWS_FEW_SHOT_PROMPT, NEWS_ZERO_SHOT_PROMPT
 
 
 class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
@@ -18,13 +18,12 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
 
     def __init__(
         self,
+        prompt_templates,
         model="ollama/llama3:8b",
         n_examples=3,
         strategy="profile_conditional",
         distance="l2",
         verbose=False,
-        prompt_template=FEW_SHOT_CLF_PROMPT_TEMPLATE,
-        zero_shot_prompt_template=ZERO_SHOT_CLF_PROMPT_TEMPLATE,
         self_sample=False,
         example_template="Text: ```{x}```\nLabel: {y}",
     ):
@@ -33,8 +32,8 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
         self.strategy = strategy
         self.distance = distance
         self.verbose = verbose
-        self.prompt_template = prompt_template
-        self.zero_shot_prompt_template = zero_shot_prompt_template
+        self.few_shot_prompt_template = prompt_templates['few']
+        self.zero_shot_prompt_template = prompt_templates['zero']
         self.self_sample = self_sample
         self.example_template = example_template
 
@@ -55,8 +54,10 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
             return 1 - np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8)
         raise ValueError(f"Unknown distance: {self.distance}")
 
-    def _logprobs(self, text):
-        prompt = self.create_prompt(text)
+    def _get_zero_shot_logprobs(self, text):
+        """Always gets logprobs using a zero-shot prompt."""
+        prompt = self._create_zero_shot_prompt(text)
+        # print(">>>", prompt)
         res = get_logprobs_cached(
             provider=self.provider,
             model_id=self.model_id,
@@ -64,9 +65,7 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
             top_logprobs=min(len(self.classes_) * 2, 10),
             temperature=0,
         )
-        return np.array(
-            [res.logprobs.get(lbl, -20.0) for lbl in self.classes_]
-        )
+        return np.array([res.logprobs.get(lbl, -20.0) for lbl in self.classes_])
 
     # -------------------------
     # Fit
@@ -94,8 +93,10 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
         if self.verbose:
             print("Computing decision-space statistics...")
 
-        for text in tqdm(X, disable=not self.verbose, desc="Fitting LogProbDynamic"):
-            logps = self._logprobs(text)
+        for text in tqdm(
+            X, disable=not self.verbose, desc="Fitting LogProbDynamic"
+        ):
+            logps = self._get_zero_shot_logprobs(text)
 
             probs = np.exp(logps - logps.max())
             probs /= probs.sum()
@@ -112,7 +113,7 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
         self.entropies_ = np.asarray(self.entropies_)
         self.margins_ = np.asarray(self.margins_)
         self.top2_ = np.asarray(self.top2_)
-        
+
         return self
 
     # -------------------------
@@ -128,7 +129,9 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
             for i, label in enumerate(self.classes_):
                 class_indices = np.where(self.y_ == label)[0]
                 num_to_select = n_per_class + (1 if i < remainder else 0)
-                random_indices = np.random.choice(class_indices, size=num_to_select, replace=False)
+                random_indices = np.random.choice(
+                    class_indices, size=num_to_select, replace=False
+                )
                 selected_indices.extend(random_indices)
             return selected_indices
 
@@ -145,29 +148,35 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
             for i, label in enumerate(self.classes_):
                 class_indices = np.where(self.y_ == label)[0]
                 class_scores = scores[class_indices]
-                
+
                 num_to_select = n_per_class + (1 if i < remainder else 0)
 
                 if ascending:
-                    top_class_indices = class_indices[np.argsort(class_scores)[-num_to_select:]]
+                    top_class_indices = class_indices[
+                        np.argsort(class_scores)[-num_to_select:]
+                    ]
                 else:
-                    top_class_indices = class_indices[np.argsort(class_scores)[:num_to_select]]
-                
+                    top_class_indices = class_indices[
+                        np.argsort(class_scores)[:num_to_select]
+                    ]
+
                 selected_indices.extend(top_class_indices)
             return selected_indices
 
         elif "conditional" in self.strategy:
             if self.strategy == "profile_conditional":
-                distances = np.array([self._distance(test_logps, lp) for lp in self.logprob_profiles_])
+                distances = np.array(
+                    [self._distance(test_logps, lp) for lp in self.logprob_profiles_]
+                )
                 scores = distances
                 ascending = True
             elif self.strategy == "confusion_conditional":
                 order = np.argsort(test_logps)[::-1][:2]
                 mask = np.all(self.top2_ == order, axis=1)
-                
+
                 scores = self.margins_
-                ascending = True 
-                
+                ascending = True
+
                 scores[~mask] = np.inf if ascending else -np.inf
 
             else:
@@ -180,48 +189,69 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
                 num_to_select = n_per_class + (1 if i < remainder else 0)
 
                 if ascending:
-                    top_class_indices = class_indices[np.argsort(class_scores)[:num_to_select]]
+                    top_class_indices = class_indices[
+                        np.argsort(class_scores)[:num_to_select]
+                    ]
                 else:
-                    top_class_indices = class_indices[np.argsort(class_scores)[-num_to_select:]]
+                    top_class_indices = class_indices[
+                        np.argsort(class_scores)[-num_to_select:]
+                    ]
 
                 selected_indices.extend(top_class_indices)
             return selected_indices
 
         raise ValueError(f"Unknown strategy: {self.strategy}")
 
+    # -------------------------
+    # Prompting
+    # -------------------------
+
+    def _create_zero_shot_prompt(self, text):
+        return build_zero_shot_prompt_slc(
+            x=text,
+            labels=str(list(self.classes_)),
+            template=self.zero_shot_prompt_template,
+        )
+
+    def _create_few_shot_prompt(self, text):
+        test_logps = (
+            self._get_zero_shot_logprobs(text)
+            if "conditional" in self.strategy
+            else None
+        )
+        idx = self._select_examples(test_logps)
+
+        examples = [(self.X_[i], self.y_[i]) for i in idx]
+
+        examples_by_class = {label: [] for label in self.classes_}
+        for x, y in examples:
+            examples_by_class[y].append((x, y))
+
+        interleaved_examples = []
+        max_len = (
+            max(len(v) for v in examples_by_class.values())
+            if examples_by_class
+            else 0
+        )
+        for i in range(max_len):
+            for label in self.classes_:
+                if label in examples_by_class and i < len(examples_by_class[label]):
+                    interleaved_examples.append(examples_by_class[label][i])
+
+        training_data = "\n".join(
+            [self.example_template.format(x=x, y=y) for x, y in interleaved_examples]
+        )
+        return build_few_shot_prompt_slc(
+            x=text,
+            labels=str(list(self.classes_)),
+            training_data=training_data,
+            template=self.few_shot_prompt_template,
+        )
+
     def create_prompt(self, text) -> str:
         if self.n_examples > 0:
-            test_logps = self._logprobs(text) if "conditional" in self.strategy else None
-            idx = self._select_examples(test_logps)
-            
-            examples = [(self.X_[i], self.y_[i]) for i in idx]
-
-            examples_by_class = {label: [] for label in self.classes_}
-            for x, y in examples:
-                examples_by_class[y].append((x, y))
-
-            interleaved_examples = []
-            max_len = max(len(v) for v in examples_by_class.values()) if examples_by_class else 0
-            for i in range(max_len):
-                for label in self.classes_:
-                    if label in examples_by_class and i < len(examples_by_class[label]):
-                        interleaved_examples.append(examples_by_class[label][i])
-
-            training_data = "\n".join(
-                [self.example_template.format(x=x, y=y) for x, y in interleaved_examples]
-            )
-            return build_few_shot_prompt_slc(
-                x=text,
-                labels=str(list(self.classes_)),
-                training_data=training_data,
-                template=self.prompt_template,
-            )
-        else:  # zero-shot case
-            return build_zero_shot_prompt_slc(
-                x=text,
-                labels=str(list(self.classes_)),
-                template=self.zero_shot_prompt_template,
-            )
+            return self._create_few_shot_prompt(text)
+        return self._create_zero_shot_prompt(text)
 
     def predict(self, X):
         check_is_fitted(self)
@@ -254,6 +284,7 @@ class LogprobDynamicFewShotClassifier(BaseEstimator, ClassifierMixin):
                     preds.append(out.response_text.strip())
 
         return np.asarray(preds)
+
 
 
 def try_zeroshot():

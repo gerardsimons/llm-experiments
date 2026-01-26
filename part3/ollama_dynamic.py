@@ -1,4 +1,5 @@
 import sys
+import time
 from pathlib import Path
 from pprint import pprint
 
@@ -8,9 +9,11 @@ from sklearn.metrics import classification_report
 from skollama.models.ollama.classification.few_shot import DynamicFewShotOllamaClassifier
 from skollama.models.ollama.classification.zero_shot import ZeroShotOllamaClassifier
 from tqdm import tqdm
+from sklearn.model_selection import train_test_split
 
 from part3.classifiers.logprob_dynamic_classifier import LogprobDynamicFewShotClassifier
-from part3.prompts import SPAM_ZERO_SHOT_PROMPT_TEMPLATE, SPAM_FEW_SHOT_PROMPT_TEMPLATE, NEWS_CLASSIFICATIONS_PROMPT_TEMPLATE
+from part3.prompts import NEWS_FEW_SHOT_PROMPT, NEWS_ZERO_SHOT_PROMPT
+
 
 cache = Cache()
 
@@ -38,7 +41,7 @@ def load_spam_data(train_size=1000, test_size=100, seed=42):
 
     return X_train, y_train, X_test, y_test
 
-def load_ag_news_data(train_size, test_size):
+def load_ag_news_data(train_size, test_size, seed=42):
     import kagglehub
 
     # Download latest version
@@ -46,17 +49,37 @@ def load_ag_news_data(train_size, test_size):
 
     print("Path to dataset files:", path)
 
-    train_df = pd.read_csv(Path(path) / 'train.csv')
-    train_df = train_df[:train_size]
-    test_df = pd.read_csv(Path(path) / 'test.csv')
-    test_df = test_df[:test_size]
+    # Load full datasets first
+    full_train_df = pd.read_csv(Path(path) / 'train.csv')
+    full_test_df = pd.read_csv(Path(path) / 'test.csv')
 
     real_labels = ['World', 'Sports', 'Business', 'Tech/Sci']
 
-    train_df['label'] = train_df['Class Index'].map(lambda x : real_labels[x-1][0].upper())
-    test_df['label'] = test_df['Class Index'].map(lambda x: real_labels[x-1][0].upper())
+    full_train_df['label'] = full_train_df['Class Index'].map(lambda x : real_labels[x-1][0].upper())
+    full_test_df['label'] = full_test_df['Class Index'].map(lambda x: real_labels[x-1][0].upper())
 
-    # There's also description ... add that later?
+    # Stratified sampling for training set
+    if train_size >= len(full_train_df):
+        train_df = full_train_df
+    else:
+        train_df, _ = train_test_split(
+            full_train_df,
+            train_size=train_size,
+            stratify=full_train_df['label'],
+            random_state=seed
+        )
+
+    # Stratified sampling for testing set
+    if test_size >= len(full_test_df):
+        test_df = full_test_df
+    else:
+        test_df, _ = train_test_split(
+            full_test_df,
+            train_size=test_size,
+            stratify=full_test_df['label'],
+            random_state=seed
+        )
+
     X_train = train_df['Title']
     y_train = train_df['label']
     X_test = test_df['Title']
@@ -76,32 +99,33 @@ def model_description_str(model):
     elif isinstance(model, DynamicFewShotOllamaClassifier):
         return f"dynamic_skollama_{model.n_examples}"
 
-def run_experiments(dl_func, prompt_template, train_size, test_size, seed=0, tag="", n_examples_all=[3]):
+def run_experiments(dl_func, train_size, test_size, seed=0, tag="", n_examples_all=[3]):
+    start_t = time.time()
     print(f"Running experiments {train_size=} {test_size=} {seed=} {tag=}")
-    # X_train, y_train, X_test, y_test = load_spam_data(train_size, test_size, seed=seed)
-    X_train, y_train, X_test, y_test = dl_func(train_size, test_size)
+    X_train, y_train, X_test, y_test = dl_func(train_size, test_size, seed=seed)
+
+    prompt_templates = {
+        'few': NEWS_FEW_SHOT_PROMPT,
+        'zero': NEWS_ZERO_SHOT_PROMPT,
+    }
 
     results = []
+    experiment_id = 0
 
     for n_examples in n_examples_all:
         models = [
-            # ZeroShotOllamaClassifier(model="llama3:8b", prompt_template=prompt_template),
-            # DynamicFewShotOllamaClassifier(model="llama3:8b", n_examples=n_examples, prompt_template=prompt_template),
-
-            LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, prompt_template=prompt_template, strategy='random', verbose=True),
-
-            # Our examples
-            # LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='l2',
-            #                                 prompt_template=prompt_template),
-            LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='cosine',
-                                            prompt_template=prompt_template, verbose=True),
-            # LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='confusion_conditional',
-            #                                 prompt_template=prompt_template),
-            # LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='margin_global', prompt_template=prompt_template),
-            # LogprobDynamicFewShotClassifier(model="llama3:8b", n_examples=n_examples, strategy='entropy_global', prompt_template=prompt_template)
+            ZeroShotOllamaClassifier(model="llama3:8b", prompt_template=prompt_templates['zero']),
+            DynamicFewShotOllamaClassifier(model="llama3:8b", n_examples=n_examples, prompt_template=prompt_templates['few']),
+            LogprobDynamicFewShotClassifier(prompt_templates=prompt_templates, model="llama3:8b", n_examples=n_examples, strategy='random', verbose=True),
+            LogprobDynamicFewShotClassifier(prompt_templates=prompt_templates, model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='l2', verbose=True),
+            LogprobDynamicFewShotClassifier(prompt_templates=prompt_templates, model="llama3:8b", n_examples=n_examples, strategy='profile_conditional', distance='cosine', verbose=True),
+            LogprobDynamicFewShotClassifier(prompt_templates=prompt_templates, model="llama3:8b", n_examples=n_examples, strategy='confusion_conditional', verbose=True),
+            LogprobDynamicFewShotClassifier(prompt_templates=prompt_templates, model="llama3:8b", n_examples=n_examples, strategy='margin_global', verbose=True),
+            LogprobDynamicFewShotClassifier(prompt_templates=prompt_templates, model="llama3:8b", n_examples=n_examples, strategy='entropy_global', verbose=True)
         ]
 
         for model  in tqdm(models, desc="Fitting"):
+            exp_t = time.time()
             model_desc = model_description_str(model)
 
             print(f"Model={model_desc}")
@@ -119,10 +143,12 @@ def run_experiments(dl_func, prompt_template, train_size, test_size, seed=0, tag
             # Macro average f1 score is most important
             f1 = report['macro avg']['f1-score']
 
-            print("Experiment Finished")
-            print(f"F1={f1}")
 
+            print(f"Experiment #{experiment_id} Finished ({model_desc})")
+            print(f"F1={f1}")
+            elapsed = time.time() - exp_t
             results.append({
+                'experiment_id': experiment_id,
                 'clf_type': type(model),
                 'clf_desc': model_desc,
                 'n_examples': n_examples,
@@ -131,11 +157,13 @@ def run_experiments(dl_func, prompt_template, train_size, test_size, seed=0, tag
                 'tag': tag,
                 'train_size': len(y_train),
                 'test_size': len(y_test),
-                'seed': seed
+                'seed': seed,
+                'duration': elapsed
             })
+            experiment_id += 1
 
-
-
+    elapsed = time.time() - start_t
+    print(f"Elapsed:{elapsed:.3f}")
     df = pd.DataFrame(results).sort_values(by='f1', ascending=False)
     fname = f"ollama_dynamic_{len(y_train)}_{tag}"
     df.to_csv(f"{fname}.csv")
@@ -154,17 +182,17 @@ if __name__ == '__main__':
     # n_examples_all = [1, 3, 10]
 
     # medium
-    # train_size = 100
-    # test_size = 100
-    # n_examples_all = [3]
+    train_size = 100
+    test_size = 100
+    n_examples_all = [3]
 
     # tiny
-    train_size = 10
-    test_size = 10
-    n_examples_all = [1]
+    # train_size = 10
+    # test_size = 10
+    # n_examples_all = [1]
 
     tag = "agnews"
-    template = NEWS_CLASSIFICATIONS_PROMPT_TEMPLATE
-    run_experiments(load_ag_news_data, template, train_size, test_size, tag=tag, n_examples_all=n_examples_all)
+
+    run_experiments(load_ag_news_data, train_size, test_size, tag=tag, n_examples_all=n_examples_all)
 
     # pprint()

@@ -1,127 +1,45 @@
 # Central repository for all prompt templates
 
 # ==============================================================================
-# Scikit-LLM / Scikit-Ollama Prompts
+# News Classification Prompts
 # ==============================================================================
 
-# Default is often internal, but we can define our own to override.
-# Note: The actual prompt construction in scikit-llm is more complex, involving
-# dynamic examples for few-shot. This is a simplified view. We will inject
-# this into our custom classifier.
+NEWS_ZERO_SHOT_PROMPT = """You are an expert news classifier. Your task is to classify the news headline into one of the following categories:
+- World (W)
+- Sports (S)
+- Business (B)
+- Science/Technology (T)
 
-SKLLM_ZERO_SHOT_PROMPT = """
-You are a text classification assistant. Your task is to classify the given text into one of the following labels:
-{labels}
+The available labels are: {labels}.
 
-Provide only the label as your response.
-
-Text:
-```{text}```
-
-Label:
-"""
-
-SKLLM_FEW_SHOT_PROMPT = """
-You are a text classification assistant. Your task is to classify the given text into one of the following labels:
-{labels}
-
-Here are some examples of correctly classified texts:
-{examples}
-
-Now, classify the following text. Provide only the label as your response.
-
-Text:
-```{text}```
-
-Label:
-"""
-
-
-# ==============================================================================
-# LangChain Prompts
-# ==============================================================================
-
-LANGCHAIN_PROMPT_TEMPLATE = """
-You are an expert in language identification. Your task is to identify the language of the provided text.
-The possible languages are:
-{labels}
-
-Please classify the following text. Respond with only the two-letter language code (e.g., 'en', 'fr', 'es').
-
-Text:
-"{text}"
-
-Language Code:
-"""
-
-
-# ==============================================================================
-# LlamaIndex Prompts
-# ==============================================================================
-
-LLAMAINDEX_PROMPT_TEMPLATE = """
-Identify the language of the following text. The possible languages are:
-{labels}
-
-Text:
-"{text}"
-"""
-
-# ==============================================================================
-# Instructor Prompts
-# ==============================================================================
-
-INSTRUCTOR_PROMPT_TEMPLATE = """
-Identify the language of the following text.
-Text: {text}
-"""
-
-# ==============================================================================
-# Spam Classification Prompts
-# ==============================================================================
-
-SPAM_ZERO_SHOT_PROMPT_TEMPLATE = """You are classifying SMS messages.
-
-Question: Is the following SMS message spam? The possible labels are: {labels}
-
-Answer with exactly one token: Yes or No.
-
-Message:
-```{x}```
-
-Answer:
-"""
-
-SPAM_FEW_SHOT_PROMPT_TEMPLATE = """You are classifying SMS messages.
-
-Here are some examples:
-{training_data}
-
-Question: Is the following SMS message spam? The possible labels are: {labels}
-
-Answer with exactly one token: Yes or No.
-
-Message:
-```{x}```
-
-Answer:
-"""
-
-NEWS_CLASSIFICATIONS_PROMPT_TEMPLATE = """You are classifying topics of news article headlines.
-
-Here are some examples:
-{training_data}
-
-Question: What is the most appropriate topic for the following news article headline
-
-Answer with exactly one letter:
-* W for World
-* S for Sports
-* B for Business
-* T for Tech/Science
+Please provide only the single-letter code for the category.
 
 Headline:
 ```{x}```
 
-Answer:
+Category Code:
 """
+
+NEWS_FEW_SHOT_PROMPT = """You are an expert news classifier. Your task is to classify the news headline into one of the following categories:
+- World (W)
+- Sports (S)
+- Business (B)
+- Science/Technology (T)
+
+The available labels are: {labels}.
+
+Here are some examples of correctly classified headlines:
+{training_data}
+
+Now, classify the following headline. Please provide only the single-letter code for the category.
+
+Headline:
+```{x}```
+
+Category Code:
+"""
+
+news_prompts = {
+    'few': NEWS_FEW_SHOT_PROMPT,
+    'zero': NEWS_ZERO_SHOT_PROMPT
+}
