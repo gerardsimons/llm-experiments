@@ -43,3 +43,15 @@ news_prompts = {
     'few': NEWS_FEW_SHOT_PROMPT,
     'zero': NEWS_ZERO_SHOT_PROMPT
 }
+
+SPAM_ZERO_SHOT_PROMPT_V2 = """You are classifying SMS messages.
+
+    Question: Is the following SMS message spam? The possible labels are: {labels}
+
+    Answer with exactly one token: Yes or No.
+
+    Message:
+    `{x}`
+
+    Answer:
+    """

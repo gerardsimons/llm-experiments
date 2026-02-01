@@ -1,0 +1,15 @@
+teacher_model: "ollama/llama3:8b"
+student_type: "logreg"
+data:
+  train_size: 1000
+  test_size: 200
+logreg:
+  C: 1.0
+transformer:
+  model_name: "distilbert-base-uncased"
+  learning_rate: 5e-5
+  batch_size: 16
+  num_epochs: 3
+  target: "label"
+evaluation:
+  abstention_threshold: 0.9
