@@ -11,7 +11,7 @@ allowed_iso_codes_str = [f'{x}' for x in allowed_iso_codes]
 sentences = [
     "I am going home today.",  # English
     "Je rentre chez moi aujourd’hui.",  # French
-    "Ich gehe heute nach Hause.",  # German
+    "Ich gehe heute nach Hause.",  # German`
     "Ik ga vandaag naar huis.",  # Dutch (NL)
     # "Ich gaon vandage nao hoes.",  # Limburgish (Netherlands)
     # "Ich goan vandage noa hoes.",  # Limburgish (Belgium)
